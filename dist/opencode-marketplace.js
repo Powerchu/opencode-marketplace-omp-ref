@@ -373,6 +373,20 @@ async function adaptPlugin(pluginDir, api, gitSpec) {
       }
     } catch {}
   }
+  // Register local path if plugin has package.json
+  try {
+    var hasPkg = false; try { await fs.access(path5.join(pluginDir, "package.json")); hasPkg = true; } catch {}
+    if (hasPkg) {
+      var ocPath = path5.join(opencodeDir, "opencode.jsonc");
+      var ocRaw = await fs.readFile(ocPath, "utf-8");
+      var ocMatch = ocRaw.match(/"plugin"\s*:\s*\[([\s\S]*?)\]/);
+      if (ocMatch && ocMatch[1].indexOf(pluginDir) < 0) {
+        var ocPlugins = ocMatch[1];
+        ocPlugins += (ocPlugins.trim() ? ",\n    " : "\n    ") + '"' + pluginDir.replace(/\\/g, "\\\\") + '"';
+        var newOc = ocRaw.replace(/"plugin"\s*:\s*\[([\s\S]*?)\]/, '"plugin": [' + ocPlugins + "\n  ]");
+        await fs.writeFile(ocPath, newOc, "utf-8");
+      }
+    }
 
   return { pluginName: manifest.name, commandsCount, skillsCount };
 }
@@ -417,9 +431,8 @@ async function buildGitSpec(manager, marketplaceName, pluginName) {
     } else {
       return null;
     }
-    return pluginName + "@" + url;
-  } catch {}
-  return null;
+    return null;
+  } catch {}  return null;
 }
 
 async function downloadPlugin(reference, cacheDir) {
