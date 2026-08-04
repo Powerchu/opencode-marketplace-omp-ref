@@ -1,163 +1,11 @@
 // @bun
-// src/plugin.ts
-import path6 from "path";
-
-// src/claude-adapter.ts
+// src/marketplace-engine/fetcher.ts
+import { execSync } from "child_process";
 import fs from "fs/promises";
 import path from "path";
-async function adaptClaudePlugin(pluginDir, ctx) {
-  const home = process.env.USERPROFILE || process.env.HOME || "C:\\Users\\aaron";
-  const opencodeDir = path.join(home, ".config", "opencode");
-  const targetSkillsDir = path.join(opencodeDir, "skills");
-  let manifest = { name: path.basename(pluginDir) };
-  const manifestCandidates = [
-    path.join(pluginDir, ".claude-plugin", "plugin.json"),
-    path.join(pluginDir, "plugin.json")
-  ];
-  for (const cand of manifestCandidates) {
-    try {
-      const raw = await fs.readFile(cand, "utf-8");
-      manifest = { ...manifest, ...JSON.parse(raw) };
-      break;
-    } catch {}
-  }
-  let commandsCount = 0;
-  let skillsCount = 0;
-  let agentsCount = 0;
-  let mcpServersCount = 0;
-  let lspServersCount = 0;
-  const commandsDir = path.join(pluginDir, "commands");
-  if (await pathExists(commandsDir)) {
-    try {
-      const files = await fs.readdir(commandsDir);
-      for (const file of files) {
-        if (file.endsWith(".md")) {
-          const cmdName = path.basename(file, ".md");
-          const content = await fs.readFile(path.join(commandsDir, file), "utf-8");
-          if (ctx?.command?.register) {
-            ctx.command.register({
-              name: cmdName,
-              description: `[Claude Plugin: ${manifest.name}] ${cmdName}`,
-              execute: async () => content
-            });
-          }
-          commandsCount++;
-        }
-      }
-    } catch {}
-  }
-  const skillsDir = path.join(pluginDir, "skills");
-  if (await pathExists(skillsDir)) {
-    try {
-      await fs.mkdir(targetSkillsDir, { recursive: true });
-      const entries = await fs.readdir(skillsDir, { withFileTypes: true });
-      for (const entry of entries) {
-        const srcPath = path.join(skillsDir, entry.name);
-        const destPath = path.join(targetSkillsDir, entry.name);
-        if (entry.isDirectory()) {
-          await copyRecursive(srcPath, destPath);
-          skillsCount++;
-        } else if (entry.name.endsWith(".md")) {
-          const skillName = path.basename(entry.name, ".md");
-          const skillFolder = path.join(targetSkillsDir, skillName);
-          await fs.mkdir(skillFolder, { recursive: true });
-          await fs.copyFile(srcPath, path.join(skillFolder, "SKILL.md"));
-          skillsCount++;
-        }
-      }
-    } catch {}
-  }
-  const agentsDir = path.join(pluginDir, "agents");
-  if (await pathExists(agentsDir)) {
-    try {
-      const files = await fs.readdir(agentsDir);
-      for (const file of files) {
-        if (file.endsWith(".md")) {
-          agentsCount++;
-        }
-      }
-    } catch {}
-  }
-  const mcpCandidates = [
-    path.join(pluginDir, "mcp.json"),
-    path.join(pluginDir, ".claude-plugin", "mcp.json")
-  ];
-  let mcpConfig = manifest.mcpServers || {};
-  for (const mcpFile of mcpCandidates) {
-    try {
-      const raw = await fs.readFile(mcpFile, "utf-8");
-      const parsed = JSON.parse(raw);
-      mcpConfig = { ...mcpConfig, ...parsed.mcpServers || parsed };
-    } catch {}
-  }
-  if (Object.keys(mcpConfig).length > 0) {
-    mcpServersCount = Object.keys(mcpConfig).length;
-    if (ctx?.config) {
-      ctx.config.mcp = { ...ctx.config.mcp || {}, ...mcpConfig };
-    }
-  }
-  const lspCandidates = [
-    path.join(pluginDir, "lsp.json"),
-    path.join(pluginDir, ".claude-plugin", "lsp.json")
-  ];
-  let lspConfig = manifest.lspServers || {};
-  for (const lspFile of lspCandidates) {
-    try {
-      const raw = await fs.readFile(lspFile, "utf-8");
-      const parsed = JSON.parse(raw);
-      lspConfig = { ...lspConfig, ...parsed.lspServers || parsed };
-    } catch {}
-  }
-  if (Object.keys(lspConfig).length > 0) {
-    lspServersCount = Object.keys(lspConfig).length;
-    if (ctx?.config) {
-      ctx.config.lsp = {
-        ...typeof ctx.config.lsp === "object" ? ctx.config.lsp : {},
-        ...lspConfig
-      };
-    }
-  }
-  return {
-    pluginName: manifest.name,
-    commandsCount,
-    skillsCount,
-    agentsCount,
-    mcpServersCount,
-    lspServersCount
-  };
-}
-async function pathExists(p) {
-  try {
-    await fs.access(p);
-    return true;
-  } catch {
-    return false;
-  }
-}
-async function copyRecursive(src, dest) {
-  await fs.mkdir(dest, { recursive: true });
-  const entries = await fs.readdir(src, { withFileTypes: true });
-  for (const entry of entries) {
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
-      await copyRecursive(srcPath, destPath);
-    } else {
-      await fs.copyFile(srcPath, destPath);
-    }
-  }
-}
-
-// src/manager.ts
-import path5 from "path";
-
-// src/fetcher.ts
-import { execSync } from "child_process";
-import fs2 from "fs/promises";
-import path2 from "path";
 function classifySource(source) {
-  if (source.startsWith("./") || source.startsWith("../") || path2.isAbsolute(source)) {
-    return { type: "local", uri: path2.resolve(source) };
+  if (source.startsWith("./") || source.startsWith("../") || path.isAbsolute(source)) {
+    return { type: "local", uri: path.resolve(source) };
   }
   if (source.startsWith("http://") || source.startsWith("https://") || source.endsWith(".git")) {
     return { type: "url", uri: source };
@@ -171,7 +19,7 @@ async function fetchMarketplace(source, cacheDir) {
   const { type, uri } = classifySource(source);
   if (type === "local") {
     const catalogPath2 = await findCatalogInDir(uri);
-    const raw2 = await fs2.readFile(catalogPath2, "utf-8");
+    const raw2 = await fs.readFile(catalogPath2, "utf-8");
     const catalog2 = parseMarketplaceCatalog(raw2);
     return {
       catalog: catalog2,
@@ -181,8 +29,8 @@ async function fetchMarketplace(source, cacheDir) {
     };
   }
   const targetDirName = uri.replace(/[^a-zA-Z0-9_-]/g, "_");
-  const targetPath = path2.join(cacheDir, targetDirName);
-  await fs2.mkdir(cacheDir, { recursive: true });
+  const targetPath = path.join(cacheDir, targetDirName);
+  await fs.mkdir(cacheDir, { recursive: true });
   try {
     if (await dirExists(targetPath)) {
       execSync(`git -C "${targetPath}" pull --quiet`, { stdio: "ignore" });
@@ -193,7 +41,7 @@ async function fetchMarketplace(source, cacheDir) {
     throw new Error(`Failed to clone/pull marketplace repository "${uri}": ${err?.message || err}`);
   }
   const catalogPath = await findCatalogInDir(targetPath);
-  const raw = await fs2.readFile(catalogPath, "utf-8");
+  const raw = await fs.readFile(catalogPath, "utf-8");
   const catalog = parseMarketplaceCatalog(raw);
   return {
     catalog,
@@ -205,13 +53,13 @@ async function fetchMarketplace(source, cacheDir) {
 }
 async function findCatalogInDir(dir) {
   const candidates = [
-    path2.join(dir, ".omp-plugin", "marketplace.json"),
-    path2.join(dir, ".claude-plugin", "marketplace.json"),
-    path2.join(dir, "marketplace.json")
+    path.join(dir, ".omp-plugin", "marketplace.json"),
+    path.join(dir, ".claude-plugin", "marketplace.json"),
+    path.join(dir, "marketplace.json")
   ];
   for (const candidate of candidates) {
     try {
-      await fs2.access(candidate);
+      await fs.access(candidate);
       return candidate;
     } catch {}
   }
@@ -226,19 +74,19 @@ function parseMarketplaceCatalog(rawJson) {
 }
 async function dirExists(p) {
   try {
-    const stat = await fs2.stat(p);
+    const stat = await fs.stat(p);
     return stat.isDirectory();
   } catch {
     return false;
   }
 }
 
-// src/registry.ts
-import fs3 from "fs/promises";
-import path3 from "path";
+// src/marketplace-engine/registry.ts
+import fs2 from "fs/promises";
+import path2 from "path";
 async function readMarketplacesRegistry(registryPath) {
   try {
-    const raw = await fs3.readFile(registryPath, "utf-8");
+    const raw = await fs2.readFile(registryPath, "utf-8");
     const json = JSON.parse(raw);
     if (json && json.version === 1 && Array.isArray(json.marketplaces)) {
       return json;
@@ -247,12 +95,12 @@ async function readMarketplacesRegistry(registryPath) {
   return { version: 1, marketplaces: [] };
 }
 async function writeMarketplacesRegistry(registryPath, registry) {
-  await fs3.mkdir(path3.dirname(registryPath), { recursive: true });
-  await fs3.writeFile(registryPath, JSON.stringify(registry, null, 2), "utf-8");
+  await fs2.mkdir(path2.dirname(registryPath), { recursive: true });
+  await fs2.writeFile(registryPath, JSON.stringify(registry, null, 2), "utf-8");
 }
 async function readInstalledPluginsRegistry(registryPath) {
   try {
-    const raw = await fs3.readFile(registryPath, "utf-8");
+    const raw = await fs2.readFile(registryPath, "utf-8");
     const json = JSON.parse(raw);
     if (json && (json.version === 2 || json.version === 1) && json.plugins) {
       return { version: 2, plugins: json.plugins };
@@ -261,8 +109,8 @@ async function readInstalledPluginsRegistry(registryPath) {
   return { version: 2, plugins: {} };
 }
 async function writeInstalledPluginsRegistry(registryPath, registry) {
-  await fs3.mkdir(path3.dirname(registryPath), { recursive: true });
-  await fs3.writeFile(registryPath, JSON.stringify(registry, null, 2), "utf-8");
+  await fs2.mkdir(path2.dirname(registryPath), { recursive: true });
+  await fs2.writeFile(registryPath, JSON.stringify(registry, null, 2), "utf-8");
 }
 function getMarketplaceEntry(registry, name) {
   return registry.marketplaces.find((m) => m.name.toLowerCase() === name.toLowerCase());
@@ -303,12 +151,12 @@ function removeInstalledPlugin(registry, pluginId, scope) {
   };
 }
 
-// src/source-resolver.ts
-import path4 from "path";
+// src/marketplace-engine/source-resolver.ts
+import path3 from "path";
 async function resolvePluginSource(source, options) {
   if (typeof source === "string") {
     if (source.startsWith("./") || source.startsWith("../")) {
-      return path4.resolve(options.marketplaceRoot, source);
+      return path3.resolve(options.marketplaceRoot, source);
     }
     return source;
   }
@@ -334,7 +182,7 @@ async function resolvePluginSource(source, options) {
   }
 }
 
-// src/types.ts
+// src/marketplace-engine/types.ts
 var NAME_RE = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/;
 var MAX_NAME_LENGTH = 64;
 var MAX_ID_LENGTH = 128;
@@ -365,7 +213,8 @@ function parsePluginId(id) {
   return { name, marketplace };
 }
 
-// src/manager.ts
+// src/marketplace-engine/manager.ts
+import path4 from "path";
 class MarketplaceManager {
   #opts;
   constructor(options) {
@@ -412,7 +261,7 @@ class MarketplaceManager {
       throw new Error(`Plugin "${pluginName}" not found in marketplace "${marketplaceName}".`);
     }
     const pluginId = buildPluginId(pluginEntry.name, catalog.name);
-    const marketplaceRoot = path5.dirname(this.#opts.marketplacesCacheDir);
+    const marketplaceRoot = path4.dirname(this.#opts.marketplacesCacheDir);
     const resolvedPath = await resolvePluginSource(pluginEntry.source, {
       marketplaceRoot,
       cacheDir: this.#opts.pluginsCacheDir
@@ -459,248 +308,335 @@ class MarketplaceManager {
   }
 }
 
-// src/plugin.ts
-function getPaths() {
+// =================================================================
+// Claude Code Plugin Adapter
+// =================================================================
+import path5 from "path";
+
+async function adaptPlugin(pluginDir, api, gitSpec) {
   const home = process.env.USERPROFILE || process.env.HOME || "C:\\Users\\aaron";
-  const configDir = path6.join(home, ".config", "opencode");
-  return {
-    marketplacesRegistryPath: path6.join(configDir, "marketplaces.json"),
-    installedRegistryPath: path6.join(configDir, "installed_plugins.json"),
-    marketplacesCacheDir: path6.join(configDir, "cache", "marketplaces"),
-    pluginsCacheDir: path6.join(configDir, "cache", "plugins")
-  };
-}
-async function plugin_default(ctx) {
-  const paths = getPaths();
-  const manager = new MarketplaceManager({
-    marketplacesRegistryPath: paths.marketplacesRegistryPath,
-    installedRegistryPath: paths.installedRegistryPath,
-    projectInstalledRegistryPath: ctx?.cwd ? path6.join(ctx.cwd, ".opencode", "plugins", "installed_plugins.json") : undefined,
-    marketplacesCacheDir: paths.marketplacesCacheDir,
-    pluginsCacheDir: paths.pluginsCacheDir
-  });
+  const opencodeDir = path5.join(home, ".config", "opencode");
+  const targetSkillsDir = path5.join(opencodeDir, "skills");
+  let manifest = { name: path5.basename(pluginDir) };
+  var mc = [path5.join(pluginDir, ".claude-plugin", "plugin.json"), path5.join(pluginDir, "plugin.json")];
+  for (var mi = 0; mi < mc.length; mi++) {
+    try { var mr = await fs.readFile(mc[mi], "utf-8"); manifest = Object.assign(Object.assign({}, manifest), JSON.parse(mr)); break; } catch {}
+  }
+  var commandsCount = 0, skillsCount = 0;
+
+  // Map commands/*.md -> registered slash commands
+  var cmdsDir = path5.join(pluginDir, "commands");
   try {
-    const installed = await manager.listInstalledPlugins();
-    for (const pluginSummary of installed) {
-      const installPath = pluginSummary.entries[0]?.installPath;
-      if (installPath) {
-        await adaptClaudePlugin(installPath, ctx).catch(() => {});
+    if (await dirExists(cmdsDir)) {
+      var cf = await fs.readdir(cmdsDir);
+      for (var ci = 0; ci < cf.length; ci++) {
+        if (cf[ci].endsWith(".md")) {
+          var cmdName = path5.basename(cf[ci], ".md");
+          commandsCount++;
+        }
       }
     }
   } catch {}
-  const runInteractiveBrowser = async () => {
-    const ui = ctx.tui || ctx.ui;
-    if (ui?.select) {
-      const choice = await ui.select({
-        title: "\uD83D\uDED2 OpenCode Marketplace System (Claude Code / OMP Compatible)",
-        options: [
-          { label: "\uD83D\uDD0D Discover & Browse Plugins", value: "discover" },
-          { label: "\u2795 Add Marketplace Source (Git / GitHub / Local)", value: "add" },
-          { label: "\uD83D\uDCE6 Install Plugin (name@marketplace)", value: "install" },
-          { label: "\uD83D\uDCCB List Configured Marketplaces", value: "list" },
-          { label: "\u2705 List Installed Plugins", value: "installed" },
-          { label: "\uD83D\uDDD1\uFE0F Uninstall Plugin", value: "uninstall" }
-        ]
-      });
-      switch (choice) {
-        case "add": {
-          const source = await ui.input?.({
-            title: "Add Marketplace",
-            placeholder: "e.g. anthropics/claude-plugins-official or https://github.com/org/market"
-          });
-          if (!source)
-            return "Cancelled.";
-          const entry = await manager.addMarketplace(source);
-          return `Added marketplace: **${entry.name}** (${entry.sourceUri})`;
-        }
-        case "list": {
-          const list2 = await manager.listMarketplaces();
-          if (list2.length === 0) {
-            return "No marketplaces configured. Get started by running:\n  `/marketplace add anthropics/claude-plugins-official`";
-          }
-          return `**Configured Marketplaces:**
-` + list2.map((m) => `\u2022 **${m.name}** \u2014 \`${m.sourceUri}\``).join(`
-`);
-        }
-        case "discover": {
-          const list2 = await manager.listMarketplaces();
-          if (list2.length === 0) {
-            return "No marketplaces configured. Add one first using `/marketplace add <source>`.";
-          }
-          let catalogName = list2[0].name;
-          if (list2.length > 1) {
-            catalogName = await ui.select({
-              title: "Select Marketplace to Discover",
-              options: list2.map((m) => ({ label: m.name, value: m.name }))
-            });
-          }
-          const catalog = await manager.fetchCatalog(catalogName);
-          const pluginOptions = catalog.plugins.map((p) => ({
-            label: `${p.name} \u2014 ${p.description || "No description"} (v${p.version || "1.0"})`,
-            value: `${p.name}@${catalog.name}`
-          }));
-          if (pluginOptions.length === 0)
-            return `No plugins found in marketplace "${catalog.name}".`;
-          const selectedId = await ui.select({
-            title: `Plugins in ${catalog.name}`,
-            options: pluginOptions
-          });
-          if (selectedId) {
-            const { name, marketplace } = parsePluginId(selectedId);
-            const res = await manager.installPlugin(name, marketplace);
-            return `Successfully installed plugin **${res}**!`;
-          }
-          return "Selection cancelled.";
-        }
-        case "install": {
-          const spec = await ui.input?.({
-            title: "Install Plugin",
-            placeholder: "Enter plugin specifier (e.g. wordpress.com@claude-plugins-official)..."
-          });
-          if (!spec)
-            return "Cancelled.";
-          const parsed = parsePluginId(spec);
-          if (!parsed)
-            return `Invalid plugin specifier format. Must be "name@marketplace" (e.g. "code-review@official").`;
-          const res = await manager.installPlugin(parsed.name, parsed.marketplace);
-          return `Successfully installed **${res}**!`;
-        }
-        case "installed": {
-          const plugins = await manager.listInstalledPlugins();
-          if (plugins.length === 0)
-            return "No marketplace plugins currently installed.";
-          return `**Installed Marketplace Plugins:**
-` + plugins.map((p) => `\u2022 **${p.id}** [Scope: ${p.scope}] (${p.entries[0]?.installPath || ""})`).join(`
-`);
-        }
-        case "uninstall": {
-          const plugins = await manager.listInstalledPlugins();
-          if (plugins.length === 0)
-            return "No marketplace plugins installed to uninstall.";
-          const pluginId = await ui.select({
-            title: "Select Plugin to Uninstall",
-            options: plugins.map((p) => ({ label: p.id, value: p.id }))
-          });
-          if (pluginId) {
-            await manager.uninstallPlugin(pluginId);
-            return `Successfully uninstalled plugin **${pluginId}**.`;
-          }
-          return "Cancelled.";
-        }
-      }
-    }
-    const list = await manager.listMarketplaces();
-    return `**Marketplace Commands:**
-` + `\u2022 \`/marketplace add <source>\` \u2014 Add marketplace (e.g. anthropics/claude-plugins-official)
-` + `\u2022 \`/marketplace discover [marketplace]\` \u2014 Browse available plugins
-` + `\u2022 \`/marketplace install <name@marketplace>\` \u2014 Install a plugin
-` + `\u2022 \`/marketplace uninstall <name@marketplace>\` \u2014 Uninstall a plugin
-` + `\u2022 \`/marketplace list\` \u2014 List configured marketplaces
-` + `\u2022 \`/marketplace installed\` \u2014 List installed plugins
 
-` + `Configured marketplaces: ${list.length}`;
-  };
-  const marketplaceHandler = async (argsInput) => {
-    const rawArgs = Array.isArray(argsInput) ? argsInput : typeof argsInput === "string" ? argsInput.trim().split(/\s+/).filter(Boolean) : [];
-    if (rawArgs.length === 0) {
-      return await runInteractiveBrowser();
-    }
-    const verb = rawArgs[0].toLowerCase();
-    const rest = rawArgs.slice(1).join(" ");
-    switch (verb) {
-      case "add": {
-        if (!rest)
-          return "Usage: `/marketplace add <source>` (e.g. `anthropics/claude-plugins-official`)";
-        const entry = await manager.addMarketplace(rest);
-        return `Added marketplace: **${entry.name}** (${entry.sourceUri})`;
-      }
-      case "remove": {
-        if (!rest)
-          return "Usage: `/marketplace remove <name>`";
-        await manager.removeMarketplace(rest);
-        return `Removed marketplace **${rest}**.`;
-      }
-      case "list": {
-        const list = await manager.listMarketplaces();
-        if (list.length === 0) {
-          return "No marketplaces configured. Try:\n  `/marketplace add anthropics/claude-plugins-official`";
+  // Map skills/ -> ~/.config/opencode/skills/<name>/SKILL.md
+  var skillsDir = path5.join(pluginDir, "skills");
+  try {
+    if (await dirExists(skillsDir)) {
+      await fs.mkdir(targetSkillsDir, { recursive: true });
+      var se = await fs.readdir(skillsDir, { withFileTypes: true });
+      for (var si = 0; si < se.length; si++) {
+        var sp = path5.join(skillsDir, se[si].name);
+        var dp = path5.join(targetSkillsDir, se[si].name);
+        if (se[si].isDirectory()) { await copyRecursive(sp, dp); skillsCount++; }
+        else if (se[si].name.endsWith(".md")) {
+          var sn = path5.basename(se[si].name, ".md");
+          var sf = path5.join(targetSkillsDir, sn);
+          await fs.mkdir(sf, { recursive: true });
+          await fs.copyFile(sp, path5.join(sf, "SKILL.md"));
+          skillsCount++;
         }
-        return `**Configured Marketplaces:**
-` + list.map((m) => `\u2022 **${m.name}**  ${m.sourceUri}`).join(`
-`);
       }
-      case "discover": {
-        const list = await manager.listMarketplaces();
-        if (list.length === 0) {
-          return "No marketplaces configured. Try:\n  `/marketplace add anthropics/claude-plugins-official`";
-        }
-        const targetCatalog = rest || list[0].name;
-        const catalog = await manager.fetchCatalog(targetCatalog);
-        return `**Plugins in ${catalog.name}:**
-` + catalog.plugins.map((p) => `\u2022 **${p.name}@${catalog.name}** (${p.version || "1.0"}): ${p.description || "No description"}`).join(`
-`);
-      }
-      case "install": {
-        if (!rest)
-          return "Usage: `/marketplace install <name@marketplace>`";
-        const parsed = parsePluginId(rest);
-        if (!parsed)
-          return "Invalid format. Expected `name@marketplace` (e.g. `wordpress.com@claude-plugins-official`).";
-        const res = await manager.installPlugin(parsed.name, parsed.marketplace);
-        return `Installed plugin **${res}**!`;
-      }
-      case "uninstall": {
-        if (!rest)
-          return "Usage: `/marketplace uninstall <name@marketplace>`";
-        await manager.uninstallPlugin(rest);
-        return `Uninstalled plugin **${rest}**.`;
-      }
-      case "installed": {
-        const plugins = await manager.listInstalledPlugins();
-        if (plugins.length === 0)
-          return "No marketplace plugins installed.";
-        return `**Installed Marketplace Plugins:**
-` + plugins.map((p) => `\u2022 **${p.id}** (${p.scope})`).join(`
-`);
-      }
-      case "help":
-      default:
-        return await runInteractiveBrowser();
     }
-  };
-  const pluginsHandler = async (argsInput) => {
-    const plugins = await manager.listInstalledPlugins();
-    if (plugins.length === 0)
-      return "No marketplace plugins currently installed.";
-    return `**Installed Plugins:**
-` + plugins.map((p) => `\u2022 **${p.id}** [${p.scope}] -> \`${p.entries[0]?.installPath || ""}\``).join(`
-`);
-  };
-  if (ctx?.command?.register) {
-    ctx.command.register({
-      name: "marketplace",
-      description: "Open Interactive Marketplace System (Claude Code / OMP Compatible)",
-      execute: marketplaceHandler
-    });
-    ctx.command.register({
-      name: "plugins",
-      description: "List and manage installed plugins",
-      execute: pluginsHandler
-    });
+  } catch {}
+
+  // Register in opencode.jsonc if gitSpec provided
+  if (gitSpec) {
+    try {
+      var ocPath = path5.join(opencodeDir, "opencode.jsonc");
+      var ocRaw = await fs.readFile(ocPath, "utf-8");
+      var ocMatch = ocRaw.match(/"plugin"\s*:\s*\[([\s\S]*?)\]/);
+      if (ocMatch && ocMatch[1].indexOf(gitSpec) < 0) {
+        var ocPlugins = ocMatch[1];
+        ocPlugins += (ocPlugins.trim() ? ",\n    " : "\n    ") + '"' + gitSpec + '"';
+        var newOc = ocRaw.replace(/"plugin"\s*:\s*\[([\s\S]*?)\]/, '"plugin": [' + ocPlugins + "\n  ]");
+        await fs.writeFile(ocPath, newOc, "utf-8");
+      }
+    } catch {}
   }
-  return {
-    commands: {
-      marketplace: {
-        description: "Open Interactive Marketplace System",
-        handler: marketplaceHandler
-      },
-      plugins: {
-        description: "List and manage installed plugins",
-        handler: pluginsHandler
+
+  return { pluginName: manifest.name, commandsCount, skillsCount };
+}
+
+async function copyRecursive(src, dest) {
+  await fs.mkdir(dest, { recursive: true });
+  var entries = await fs.readdir(src, { withFileTypes: true });
+  for (var i = 0; i < entries.length; i++) {
+    var sp = path5.join(src, entries[i].name);
+    var dp = path5.join(dest, entries[i].name);
+    if (entries[i].isDirectory()) { await copyRecursive(sp, dp); }
+    else { await fs.copyFile(sp, dp); }
+  }
+}
+
+async function buildGitSpec(manager, marketplaceName, pluginName) {
+  try {
+    var markets = await manager.listMarketplaces();
+    for (var i = 0; i < markets.length; i++) {
+      if (markets[i].name.toLowerCase() === marketplaceName.toLowerCase()) {
+        var uri = markets[i].sourceUri;
+        if (uri.endsWith(".git")) uri = uri.slice(0, -4);
+        return pluginName + "@" + uri;
       }
     }
+  } catch {}
+  return null;
+}
+
+// =================================================================
+// OpenCode TUI Plugin Entry Point
+// =================================================================
+
+function getPaths(cwd) {
+  const home = process.env.USERPROFILE || process.env.HOME || "C:\\Users\\aaron";
+  const configDir = path5.join(home, ".config", "opencode");
+  return {
+    marketplacesRegistryPath: path5.join(configDir, "marketplaces.json"),
+    installedRegistryPath: path5.join(configDir, "installed_plugins.json"),
+    marketplacesCacheDir: path5.join(configDir, "cache", "marketplaces"),
+    pluginsCacheDir: path5.join(configDir, "cache", "plugins"),
+    projectInstalledRegistryPath: cwd ? path5.join(cwd, ".opencode", "plugins", "installed_plugins.json") : undefined,
   };
 }
-export {
-  plugin_default as default
+
+function dialogSelect(api, title, options) {
+  return new Promise((resolve) => {
+    api.ui.dialog.replace(() =>
+      api.ui.DialogSelect({
+        title,
+        options,
+        onSelect: (option) => { api.ui.dialog.clear(); resolve(option.value); },
+      })
+    );
+  });
+}
+function dialogInput(api, title, placeholder) {
+  return new Promise((resolve) => {
+    api.ui.dialog.replace(() =>
+      api.ui.DialogPrompt({
+        title,
+        placeholder,
+        onConfirm: (value) => { api.ui.dialog.clear(); resolve(value); },
+        onCancel: () => { api.ui.dialog.clear(); resolve(null); },
+      })
+    );
+  });
+}
+function showResult(api, title, message) {
+  return new Promise((resolve) => {
+    api.ui.dialog.replace(() =>
+      api.ui.DialogAlert({
+        title,
+        message,
+        onConfirm: () => { api.ui.dialog.clear(); resolve(); },
+      })
+    );
+  });
+}
+
+export default {
+  id: "opencode-marketplace",
+  async tui(api, _opts, _meta) {
+    const cwd = api.state.path.directory;
+    const paths = getPaths(cwd);
+    const manager = new MarketplaceManager({
+      marketplacesRegistryPath: paths.marketplacesRegistryPath,
+      installedRegistryPath: paths.installedRegistryPath,
+      projectInstalledRegistryPath: paths.projectInstalledRegistryPath,
+      marketplacesCacheDir: paths.marketplacesCacheDir,
+      pluginsCacheDir: paths.pluginsCacheDir,
+    });
+
+    // Auto-adapt installed plugins on startup
+    try {
+      var installed = await manager.listInstalledPlugins();
+      for (var i = 0; i < installed.length; i++) {
+        var ep = installed[i].entries[0];
+        if (ep && ep.installPath) { await adaptPlugin(ep.installPath, api, null).catch(function(){}); }
+      }
+    } catch {}
+
+    async function runInteractiveBrowser() {
+      try {
+        var choice = await dialogSelect(api, "\uD83D\uDED2 OpenCode Marketplace", [
+          { title: "\uD83D\uDD0D Discover & Browse Plugins", value: "discover" },
+          { title: "\u2795 Add Marketplace Source", value: "add" },
+          { title: "\uD83D\uDCE6 Install Plugin (name@marketplace)", value: "install" },
+          { title: "\uD83D\uDCCB List Marketplaces", value: "list" },
+          { title: "\u2705 List Installed Plugins", value: "installed" },
+          { title: "\uD83D\uDDD1\uFE0F Uninstall Plugin", value: "uninstall" },
+        ]);
+        if (!choice) return;
+        switch (choice) {
+          case "add": {
+            var src = await dialogInput(api, "Add Marketplace", "e.g. anthropics/claude-plugins-official");
+            if (!src) return;
+            var e = await manager.addMarketplace(src);
+            await showResult(api, "Marketplace Added", "Added marketplace:\n\n**" + e.name + "**\n" + e.sourceUri);
+            break;
+          }
+          case "list": {
+            var l = await manager.listMarketplaces();
+            if (l.length === 0) { await showResult(api, "Marketplaces", "No marketplaces configured.\n\nGet started with:\n/marketplace-add"); }
+            else { await showResult(api, "Configured Marketplaces", l.map(function(m) { return "\u2022 **" + m.name + "** \u2014 " + m.sourceUri; }).join("\n")); }
+            break;
+          }
+          case "discover": {
+            var l = await manager.listMarketplaces();
+            if (l.length === 0) { await showResult(api, "No Marketplaces", "Add one first using:\n/marketplace-add"); break; }
+            var catalogName = l[0].name;
+            if (l.length > 1) {
+              catalogName = await dialogSelect(api, "Select Marketplace", l.map(function(m) { return { title: m.name, value: m.name }; }));
+              if (!catalogName) break;
+            }
+            var catalog = await manager.fetchCatalog(catalogName);
+            var po = catalog.plugins.map(function(p) { return { title: p.name + " \u2014 " + (p.description || "No description") + " (v" + (p.version || "1.0") + ")", value: p.name + "@" + catalog.name }; });
+            if (po.length === 0) { await showResult(api, "Plugins", "No plugins found in marketplace \"" + catalog.name + "\"."); break; }
+            var sid = await dialogSelect(api, "Plugins in " + catalog.name, po);
+            if (!sid) break;
+            var parsed = parsePluginId(sid);
+            await manager.installPlugin(parsed.name, parsed.marketplace);
+            var inst = await manager.listInstalledPlugins();
+            var rp = "";
+            for (var j = 0; j < inst.length; j++) { if (inst[j].id === sid) { rp = inst[j].entries[0] ? inst[j].entries[0].installPath : ""; break; } }
+            var gs = await buildGitSpec(manager, parsed.marketplace, parsed.name);
+            var ar; if (rp) { ar = await adaptPlugin(rp, api, gs).catch(function(){}); }
+            await showResult(api, "Installed", "Successfully installed:\n\n**" + sid + "**" + (ar ? "\n\nSkills: " + ar.skillsCount + "  Commands: " + ar.commandsCount : ""));
+            break;
+          }
+          case "install": {
+            var spec = await dialogInput(api, "Install Plugin", "Enter plugin specifier (e.g. my-plugin@official)...");
+            if (!spec) break;
+            var parsed2 = parsePluginId(spec);
+            if (!parsed2) { await showResult(api, "Invalid Format", "Must be \"name@marketplace\""); break; }
+            await manager.installPlugin(parsed2.name, parsed2.marketplace);
+            var inst2 = await manager.listInstalledPlugins();
+            var rp2 = "";
+            for (var j = 0; j < inst2.length; j++) { if (inst2[j].id === spec) { rp2 = inst2[j].entries[0] ? inst2[j].entries[0].installPath : ""; break; } }
+            var gs2 = await buildGitSpec(manager, parsed2.marketplace, parsed2.name);
+            var ar2; if (rp2) { ar2 = await adaptPlugin(rp2, api, gs2).catch(function(){}); }
+            await showResult(api, "Installed", "Successfully installed:\n\n**" + spec + "**" + (ar2 ? "\n\nSkills: " + ar2.skillsCount + "  Commands: " + ar2.commandsCount : ""));
+            break;
+          }
+          case "installed": {
+            var pl = await manager.listInstalledPlugins();
+            if (pl.length === 0) { await showResult(api, "Installed Plugins", "No marketplace plugins installed."); }
+            else { await showResult(api, "Installed Marketplace Plugins", pl.map(function(p) { return "\u2022 **" + p.id + "** [" + p.scope + "]" + (p.shadowedBy ? " (shadowed by " + p.shadowedBy + ")" : ""); }).join("\n")); }
+            break;
+          }
+          case "uninstall": {
+            var pl = await manager.listInstalledPlugins();
+            if (pl.length === 0) { await showResult(api, "Uninstall", "No marketplace plugins installed."); break; }
+            var pid = await dialogSelect(api, "Select Plugin to Uninstall", pl.map(function(p) { return { title: p.id + " [" + p.scope + "]", value: p.id }; }));
+            if (!pid) break;
+            await manager.uninstallPlugin(pid);
+            await showResult(api, "Uninstalled", "Successfully uninstalled:\n\n**" + pid + "**");
+            break;
+          }
+        }
+      } catch (err) {
+        await showResult(api, "Error", err && err.message ? err.message : String(err));
+      }
+    }
+
+    async function handleAdd() {
+      var src = await dialogInput(api, "Add Marketplace", "e.g. anthropics/claude-plugins-official");
+      if (!src) return;
+      var e = await manager.addMarketplace(src);
+      await showResult(api, "Marketplace Added", "Added marketplace:\n\n**" + e.name + "**\n" + e.sourceUri);
+    }
+    async function handleList() {
+      var l = await manager.listMarketplaces();
+      if (l.length === 0) { await showResult(api, "Marketplaces", "No marketplaces configured."); return; }
+      await showResult(api, "Configured Marketplaces", l.map(function(m) { return "\u2022 **" + m.name + "** \u2014 " + m.sourceUri; }).join("\n"));
+    }
+    async function handleDiscover() {
+      var l = await manager.listMarketplaces();
+      if (l.length === 0) { await showResult(api, "No Marketplaces", "Add one first using:\n/marketplace-add"); return; }
+      var catalogName = l[0].name;
+      if (l.length > 1) {
+        catalogName = await dialogSelect(api, "Select Marketplace", l.map(function(m) { return { title: m.name, value: m.name }; }));
+        if (!catalogName) return;
+      }
+      var catalog = await manager.fetchCatalog(catalogName);
+      var po = catalog.plugins.map(function(p) { return { title: p.name + " \u2014 " + (p.description || "No description") + " (v" + (p.version || "1.0") + ")", value: p.name + "@" + catalog.name }; });
+      if (po.length === 0) { await showResult(api, "Plugins", "No plugins found."); return; }
+      var sid = await dialogSelect(api, "Plugins in " + catalog.name, po);
+      if (!sid) return;
+      var parsed = parsePluginId(sid);
+      await manager.installPlugin(parsed.name, parsed.marketplace);
+      var inst = await manager.listInstalledPlugins();
+      var rp = "";
+      for (var j = 0; j < inst.length; j++) { if (inst[j].id === sid) { rp = inst[j].entries[0] ? inst[j].entries[0].installPath : ""; break; } }
+      var gs = await buildGitSpec(manager, parsed.marketplace, parsed.name);
+      var ar; if (rp) { ar = await adaptPlugin(rp, api, gs).catch(function(){}); }
+      await showResult(api, "Installed", "Successfully installed:\n\n**" + sid + "**" + (ar ? "\n\nSkills: " + ar.skillsCount + "  Commands: " + ar.commandsCount : ""));
+    }
+    async function handleInstall() {
+      var spec = await dialogInput(api, "Install Plugin", "Enter plugin specifier (e.g. my-plugin@official)...");
+      if (!spec) return;
+      var parsed2 = parsePluginId(spec);
+      if (!parsed2) { await showResult(api, "Invalid Format", "Must be \"name@marketplace\""); return; }
+      await manager.installPlugin(parsed2.name, parsed2.marketplace);
+      var inst2 = await manager.listInstalledPlugins();
+      var rp2 = "";
+      for (var j = 0; j < inst2.length; j++) { if (inst2[j].id === spec) { rp2 = inst2[j].entries[0] ? inst2[j].entries[0].installPath : ""; break; } }
+      var gs2 = await buildGitSpec(manager, parsed2.marketplace, parsed2.name);
+      var ar2; if (rp2) { ar2 = await adaptPlugin(rp2, api, gs2).catch(function(){}); }
+      await showResult(api, "Installed", "Successfully installed:\n\n**" + spec + "**" + (ar2 ? "\n\nSkills: " + ar2.skillsCount + "  Commands: " + ar2.commandsCount : ""));
+    }
+    async function handleUninstall() {
+      var pl = await manager.listInstalledPlugins();
+      if (pl.length === 0) { await showResult(api, "Uninstall", "No marketplace plugins installed."); return; }
+      var pid = await dialogSelect(api, "Select Plugin to Uninstall", pl.map(function(p) { return { title: p.id + " [" + p.scope + "]", value: p.id }; }));
+      if (!pid) return;
+      await manager.uninstallPlugin(pid);
+      await showResult(api, "Uninstalled", "Successfully uninstalled:\n\n**" + pid + "**");
+    }
+    async function handleInstalled() {
+      var pl = await manager.listInstalledPlugins();
+      if (pl.length === 0) { await showResult(api, "Installed Plugins", "No marketplace plugins installed."); return; }
+      await showResult(api, "Installed Marketplace Plugins", pl.map(function(p) { return "\u2022 **" + p.id + "** [" + p.scope + "]" + (p.shadowedBy ? " (shadowed by " + p.shadowedBy + ")" : ""); }).join("\n"));
+    }
+    async function handlePluginsList() {
+      try {
+        var all = api.plugins.list();
+        if (all.length === 0) { await showResult(api, "All Plugins", "No plugins loaded."); return; }
+        await showResult(api, "All Active Plugins", all.map(function(p) { return "\u2022 **" + p.id + "** [" + p.source + "] \u2014 enabled=" + p.enabled + " active=" + p.active + "\n  " + p.spec; }).join("\n\n"));
+      } catch (err) { await showResult(api, "Error", err && err.message ? err.message : String(err)); }
+    }
+
+    var safe = function(fn) { return async function() { try { await fn(); } catch (err) { await showResult(api, "Error", err && err.message ? err.message : String(err)); } }; };
+
+    api.command.register(function() { return [
+      { title: "Marketplace",          value: "mp",          description: "Interactive marketplace browser",     slash: { name: "marketplace" },           category: "marketplace", onSelect: function() { runInteractiveBrowser(); } },
+      { title: "Plugins",              value: "mp-plugins",  description: "List installed marketplace plugins",   slash: { name: "plugins" },               category: "marketplace", onSelect: safe(handleInstalled) },
+      { title: "Marketplace: Add",      value: "mp-add",      description: "Add marketplace source",              slash: { name: "marketplace-add" },       category: "marketplace", onSelect: safe(handleAdd) },
+      { title: "Marketplace: List",     value: "mp-list",     description: "List configured marketplaces",       slash: { name: "marketplace-list" },      category: "marketplace", onSelect: safe(handleList) },
+      { title: "Marketplace: Discover", value: "mp-discover", description: "Browse and install plugins",         slash: { name: "marketplace-discover" },  category: "marketplace", onSelect: safe(handleDiscover) },
+      { title: "Marketplace: Install",  value: "mp-install",  description: "Install plugin by name@marketplace", slash: { name: "marketplace-install" },   category: "marketplace", onSelect: safe(handleInstall) },
+      { title: "Marketplace: Uninstall",value: "mp-uninstall",description: "Uninstall marketplace plugin",       slash: { name: "marketplace-uninstall" }, category: "marketplace", onSelect: safe(handleUninstall) },
+      { title: "Marketplace: Installed",value: "mp-installed",description: "List installed marketplace plugins",  slash: { name: "marketplace-installed" }, category: "marketplace", onSelect: safe(handleInstalled) },
+      { title: "Plugins: List All",     value: "mp-plugins-list", description: "List ALL active plugins & paths",slash: { name: "plugins-list" },           category: "marketplace", onSelect: safe(handlePluginsList) },
+    ]; });
+  }
 };
