@@ -410,10 +410,10 @@ async function buildGitSpec(manager, marketplaceName, pluginName) {
     }
     // External source — use the plugin's own repo URL
     if (source.source === "github") {
-      url = "https://github.com/" + source.repo;
+      url = "git+https://github.com/" + source.repo + ".git";
     } else if (source.source === "url" || source.source === "git-subdir") {
-      url = source.url;
-      if (url.endsWith(".git")) url = url.slice(0, -4);
+      url = "git+" + source.url;
+      if (!url.endsWith(".git")) url = url + ".git";
     } else {
       return null;
     }
