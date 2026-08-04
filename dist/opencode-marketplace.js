@@ -390,14 +390,34 @@ async function copyRecursive(src, dest) {
 
 async function buildGitSpec(manager, marketplaceName, pluginName) {
   try {
-    var markets = await manager.listMarketplaces();
-    for (var i = 0; i < markets.length; i++) {
-      if (markets[i].name.toLowerCase() === marketplaceName.toLowerCase()) {
-        var uri = markets[i].sourceUri;
-        if (uri.endsWith(".git")) uri = uri.slice(0, -4);
-        return pluginName + "@" + uri;
+    var catalog = await manager.fetchCatalog(marketplaceName);
+    var pluginEntry = catalog.plugins.find(function(p) { return p.name.toLowerCase() === pluginName.toLowerCase(); });
+    if (!pluginEntry || !pluginEntry.source) return null;
+
+    var source = pluginEntry.source;
+    var url;
+    if (typeof source === "string") {
+      // Relative path → use marketplace URL
+      var markets = await manager.listMarketplaces();
+      for (var i = 0; i < markets.length; i++) {
+        if (markets[i].name.toLowerCase() === marketplaceName.toLowerCase()) {
+          url = markets[i].sourceUri;
+          if (url.endsWith(".git")) url = url.slice(0, -4);
+          break;
+        }
       }
+      return url ? (pluginName + "@" + url) : null;
     }
+    // External source — use the plugin's own repo URL
+    if (source.source === "github") {
+      url = "https://github.com/" + source.repo;
+    } else if (source.source === "url" || source.source === "git-subdir") {
+      url = source.url;
+      if (url.endsWith(".git")) url = url.slice(0, -4);
+    } else {
+      return null;
+    }
+    return pluginName + "@" + url;
   } catch {}
   return null;
 }
