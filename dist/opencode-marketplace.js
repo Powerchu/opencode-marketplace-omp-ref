@@ -1,17 +1,140 @@
 // @bun
 // src/plugin.ts
-import path5 from "path";
+import path6 from "path";
+
+// src/claude-adapter.ts
+import fs from "fs/promises";
+import path from "path";
+async function adaptClaudePlugin(pluginDir, ctx) {
+  const home = process.env.USERPROFILE || process.env.HOME || "C:\\Users\\aaron";
+  const opencodeDir = path.join(home, ".config", "opencode");
+  const targetSkillsDir = path.join(opencodeDir, "skills");
+  let manifest = { name: path.basename(pluginDir) };
+  const manifestCandidates = [
+    path.join(pluginDir, ".claude-plugin", "plugin.json"),
+    path.join(pluginDir, "plugin.json")
+  ];
+  for (const cand of manifestCandidates) {
+    try {
+      const raw = await fs.readFile(cand, "utf-8");
+      manifest = { ...manifest, ...JSON.parse(raw) };
+      break;
+    } catch {}
+  }
+  let commandsCount = 0;
+  let skillsCount = 0;
+  let agentsCount = 0;
+  let mcpServersCount = 0;
+  const commandsDir = path.join(pluginDir, "commands");
+  if (await pathExists(commandsDir)) {
+    try {
+      const files = await fs.readdir(commandsDir);
+      for (const file of files) {
+        if (file.endsWith(".md")) {
+          const cmdName = path.basename(file, ".md");
+          const content = await fs.readFile(path.join(commandsDir, file), "utf-8");
+          if (ctx?.command?.register) {
+            ctx.command.register({
+              name: cmdName,
+              description: `[Claude Plugin: ${manifest.name}] ${cmdName}`,
+              execute: async () => content
+            });
+          }
+          commandsCount++;
+        }
+      }
+    } catch {}
+  }
+  const skillsDir = path.join(pluginDir, "skills");
+  if (await pathExists(skillsDir)) {
+    try {
+      await fs.mkdir(targetSkillsDir, { recursive: true });
+      const entries = await fs.readdir(skillsDir, { withFileTypes: true });
+      for (const entry of entries) {
+        const srcPath = path.join(skillsDir, entry.name);
+        const destPath = path.join(targetSkillsDir, entry.name);
+        if (entry.isDirectory()) {
+          await copyRecursive(srcPath, destPath);
+          skillsCount++;
+        } else if (entry.name.endsWith(".md")) {
+          const skillName = path.basename(entry.name, ".md");
+          const skillFolder = path.join(targetSkillsDir, skillName);
+          await fs.mkdir(skillFolder, { recursive: true });
+          await fs.copyFile(srcPath, path.join(skillFolder, "SKILL.md"));
+          skillsCount++;
+        }
+      }
+    } catch {}
+  }
+  const agentsDir = path.join(pluginDir, "agents");
+  if (await pathExists(agentsDir)) {
+    try {
+      const files = await fs.readdir(agentsDir);
+      for (const file of files) {
+        if (file.endsWith(".md")) {
+          agentsCount++;
+        }
+      }
+    } catch {}
+  }
+  const mcpCandidates = [
+    path.join(pluginDir, "mcp.json"),
+    path.join(pluginDir, ".claude-plugin", "mcp.json")
+  ];
+  let mcpConfig = manifest.mcpServers || {};
+  for (const mcpFile of mcpCandidates) {
+    try {
+      const raw = await fs.readFile(mcpFile, "utf-8");
+      const parsed = JSON.parse(raw);
+      mcpConfig = { ...mcpConfig, ...parsed.mcpServers || parsed };
+    } catch {}
+  }
+  if (Object.keys(mcpConfig).length > 0) {
+    mcpServersCount = Object.keys(mcpConfig).length;
+    if (ctx?.config) {
+      ctx.config.mcp = { ...ctx.config.mcp || {}, ...mcpConfig };
+    }
+  }
+  return {
+    pluginName: manifest.name,
+    commandsCount,
+    skillsCount,
+    agentsCount,
+    mcpServersCount
+  };
+}
+async function pathExists(p) {
+  try {
+    await fs.access(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function copyRecursive(src, dest) {
+  await fs.mkdir(dest, { recursive: true });
+  const entries = await fs.readdir(src, { withFileTypes: true });
+  for (const entry of entries) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      await copyRecursive(srcPath, destPath);
+    } else {
+      await fs.copyFile(srcPath, destPath);
+    }
+  }
+}
 
 // src/manager.ts
-import path4 from "path";
+import path5 from "path";
 
 // src/fetcher.ts
 import { execSync } from "child_process";
-import fs from "fs/promises";
-import path from "path";
+import fs2 from "fs/promises";
+import path2 from "path";
 function classifySource(source) {
-  if (source.startsWith("./") || source.startsWith("../") || path.isAbsolute(source)) {
-    return { type: "local", uri: path.resolve(source) };
+  if (source.startsWith("./") || source.startsWith("../") || path2.isAbsolute(source)) {
+    return { type: "local", uri: path2.resolve(source) };
   }
   if (source.startsWith("http://") || source.startsWith("https://") || source.endsWith(".git")) {
     return { type: "url", uri: source };
@@ -25,7 +148,7 @@ async function fetchMarketplace(source, cacheDir) {
   const { type, uri } = classifySource(source);
   if (type === "local") {
     const catalogPath2 = await findCatalogInDir(uri);
-    const raw2 = await fs.readFile(catalogPath2, "utf-8");
+    const raw2 = await fs2.readFile(catalogPath2, "utf-8");
     const catalog2 = parseMarketplaceCatalog(raw2);
     return {
       catalog: catalog2,
@@ -35,8 +158,8 @@ async function fetchMarketplace(source, cacheDir) {
     };
   }
   const targetDirName = uri.replace(/[^a-zA-Z0-9_-]/g, "_");
-  const targetPath = path.join(cacheDir, targetDirName);
-  await fs.mkdir(cacheDir, { recursive: true });
+  const targetPath = path2.join(cacheDir, targetDirName);
+  await fs2.mkdir(cacheDir, { recursive: true });
   try {
     if (await dirExists(targetPath)) {
       execSync(`git -C "${targetPath}" pull --quiet`, { stdio: "ignore" });
@@ -47,7 +170,7 @@ async function fetchMarketplace(source, cacheDir) {
     throw new Error(`Failed to clone/pull marketplace repository "${uri}": ${err?.message || err}`);
   }
   const catalogPath = await findCatalogInDir(targetPath);
-  const raw = await fs.readFile(catalogPath, "utf-8");
+  const raw = await fs2.readFile(catalogPath, "utf-8");
   const catalog = parseMarketplaceCatalog(raw);
   return {
     catalog,
@@ -59,13 +182,13 @@ async function fetchMarketplace(source, cacheDir) {
 }
 async function findCatalogInDir(dir) {
   const candidates = [
-    path.join(dir, ".omp-plugin", "marketplace.json"),
-    path.join(dir, ".claude-plugin", "marketplace.json"),
-    path.join(dir, "marketplace.json")
+    path2.join(dir, ".omp-plugin", "marketplace.json"),
+    path2.join(dir, ".claude-plugin", "marketplace.json"),
+    path2.join(dir, "marketplace.json")
   ];
   for (const candidate of candidates) {
     try {
-      await fs.access(candidate);
+      await fs2.access(candidate);
       return candidate;
     } catch {}
   }
@@ -80,7 +203,7 @@ function parseMarketplaceCatalog(rawJson) {
 }
 async function dirExists(p) {
   try {
-    const stat = await fs.stat(p);
+    const stat = await fs2.stat(p);
     return stat.isDirectory();
   } catch {
     return false;
@@ -88,11 +211,11 @@ async function dirExists(p) {
 }
 
 // src/registry.ts
-import fs2 from "fs/promises";
-import path2 from "path";
+import fs3 from "fs/promises";
+import path3 from "path";
 async function readMarketplacesRegistry(registryPath) {
   try {
-    const raw = await fs2.readFile(registryPath, "utf-8");
+    const raw = await fs3.readFile(registryPath, "utf-8");
     const json = JSON.parse(raw);
     if (json && json.version === 1 && Array.isArray(json.marketplaces)) {
       return json;
@@ -101,12 +224,12 @@ async function readMarketplacesRegistry(registryPath) {
   return { version: 1, marketplaces: [] };
 }
 async function writeMarketplacesRegistry(registryPath, registry) {
-  await fs2.mkdir(path2.dirname(registryPath), { recursive: true });
-  await fs2.writeFile(registryPath, JSON.stringify(registry, null, 2), "utf-8");
+  await fs3.mkdir(path3.dirname(registryPath), { recursive: true });
+  await fs3.writeFile(registryPath, JSON.stringify(registry, null, 2), "utf-8");
 }
 async function readInstalledPluginsRegistry(registryPath) {
   try {
-    const raw = await fs2.readFile(registryPath, "utf-8");
+    const raw = await fs3.readFile(registryPath, "utf-8");
     const json = JSON.parse(raw);
     if (json && (json.version === 2 || json.version === 1) && json.plugins) {
       return { version: 2, plugins: json.plugins };
@@ -115,8 +238,8 @@ async function readInstalledPluginsRegistry(registryPath) {
   return { version: 2, plugins: {} };
 }
 async function writeInstalledPluginsRegistry(registryPath, registry) {
-  await fs2.mkdir(path2.dirname(registryPath), { recursive: true });
-  await fs2.writeFile(registryPath, JSON.stringify(registry, null, 2), "utf-8");
+  await fs3.mkdir(path3.dirname(registryPath), { recursive: true });
+  await fs3.writeFile(registryPath, JSON.stringify(registry, null, 2), "utf-8");
 }
 function getMarketplaceEntry(registry, name) {
   return registry.marketplaces.find((m) => m.name.toLowerCase() === name.toLowerCase());
@@ -158,11 +281,11 @@ function removeInstalledPlugin(registry, pluginId, scope) {
 }
 
 // src/source-resolver.ts
-import path3 from "path";
+import path4 from "path";
 async function resolvePluginSource(source, options) {
   if (typeof source === "string") {
     if (source.startsWith("./") || source.startsWith("../")) {
-      return path3.resolve(options.marketplaceRoot, source);
+      return path4.resolve(options.marketplaceRoot, source);
     }
     return source;
   }
@@ -266,7 +389,7 @@ class MarketplaceManager {
       throw new Error(`Plugin "${pluginName}" not found in marketplace "${marketplaceName}".`);
     }
     const pluginId = buildPluginId(pluginEntry.name, catalog.name);
-    const marketplaceRoot = path4.dirname(this.#opts.marketplacesCacheDir);
+    const marketplaceRoot = path5.dirname(this.#opts.marketplacesCacheDir);
     const resolvedPath = await resolvePluginSource(pluginEntry.source, {
       marketplaceRoot,
       cacheDir: this.#opts.pluginsCacheDir
@@ -316,12 +439,12 @@ class MarketplaceManager {
 // src/plugin.ts
 function getPaths() {
   const home = process.env.USERPROFILE || process.env.HOME || "C:\\Users\\aaron";
-  const configDir = path5.join(home, ".config", "opencode");
+  const configDir = path6.join(home, ".config", "opencode");
   return {
-    marketplacesRegistryPath: path5.join(configDir, "marketplaces.json"),
-    installedRegistryPath: path5.join(configDir, "installed_plugins.json"),
-    marketplacesCacheDir: path5.join(configDir, "cache", "marketplaces"),
-    pluginsCacheDir: path5.join(configDir, "cache", "plugins")
+    marketplacesRegistryPath: path6.join(configDir, "marketplaces.json"),
+    installedRegistryPath: path6.join(configDir, "installed_plugins.json"),
+    marketplacesCacheDir: path6.join(configDir, "cache", "marketplaces"),
+    pluginsCacheDir: path6.join(configDir, "cache", "plugins")
   };
 }
 async function plugin_default(ctx) {
@@ -329,10 +452,19 @@ async function plugin_default(ctx) {
   const manager = new MarketplaceManager({
     marketplacesRegistryPath: paths.marketplacesRegistryPath,
     installedRegistryPath: paths.installedRegistryPath,
-    projectInstalledRegistryPath: ctx?.cwd ? path5.join(ctx.cwd, ".opencode", "plugins", "installed_plugins.json") : undefined,
+    projectInstalledRegistryPath: ctx?.cwd ? path6.join(ctx.cwd, ".opencode", "plugins", "installed_plugins.json") : undefined,
     marketplacesCacheDir: paths.marketplacesCacheDir,
     pluginsCacheDir: paths.pluginsCacheDir
   });
+  try {
+    const installed = await manager.listInstalledPlugins();
+    for (const pluginSummary of installed) {
+      const installPath = pluginSummary.entries[0]?.installPath;
+      if (installPath) {
+        await adaptClaudePlugin(installPath, ctx).catch(() => {});
+      }
+    }
+  } catch {}
   const runInteractiveBrowser = async () => {
     const ui = ctx.tui || ctx.ui;
     if (ui?.select) {

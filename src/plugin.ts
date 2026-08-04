@@ -1,4 +1,5 @@
 import path from "node:path";
+import { adaptClaudePlugin } from "./claude-adapter";
 import { MarketplaceManager } from "./manager";
 import { parsePluginId } from "./types";
 
@@ -24,6 +25,17 @@ export default async function (ctx: any) {
     marketplacesCacheDir: paths.marketplacesCacheDir,
     pluginsCacheDir: paths.pluginsCacheDir,
   });
+
+  // Auto-adapt all installed Claude Code plugins into OpenCode on startup
+  try {
+    const installed = await manager.listInstalledPlugins();
+    for (const pluginSummary of installed) {
+      const installPath = pluginSummary.entries[0]?.installPath;
+      if (installPath) {
+        await adaptClaudePlugin(installPath, ctx).catch(() => {});
+      }
+    }
+  } catch {}
 
   const runInteractiveBrowser = async () => {
     const ui = ctx.tui || ctx.ui;
