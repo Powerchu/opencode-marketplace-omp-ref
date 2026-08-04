@@ -1,0 +1,26 @@
+{
+  "name": "opencode-marketplace-omp-ref",
+  "version": "1.0.0",
+  "description": "Claude Code & OMP-compatible Marketplace Engine Extension for OpenCode",
+  "main": "dist/opencode-marketplace.js",
+  "module": "dist/opencode-marketplace.js",
+  "type": "module",
+  "scripts": {
+    "build": "bun build src/plugin.ts --outfile dist/opencode-marketplace.js --target bun",
+    "test": "bun test"
+  },
+  "keywords": [
+    "opencode",
+    "plugin",
+    "marketplace",
+    "claude-code",
+    "oh-my-pi",
+    "omp"
+  ],
+  "author": "Aaron Chu (Powerchu)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Powerchu/opencode-marketplace-omp-ref.git"
+  }
+}

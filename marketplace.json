@@ -1,0 +1,22 @@
+{
+  "name": "opencode-marketplace-omp-ref",
+  "owner": {
+    "name": "Powerchu",
+    "email": "m.chu@digipen.edu"
+  },
+  "metadata": {
+    "description": "Claude Code & OMP Compatible Marketplace Plugin Engine",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "marketplace-engine",
+      "description": "Full Marketplace Discovery, Multi-source Resolution & TUI Browser Plugin for OpenCode",
+      "version": "1.0.0",
+      "source": {
+        "source": "github",
+        "repo": "Powerchu/opencode-marketplace-omp-ref"
+      }
+    }
+  ]
+}
