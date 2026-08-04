@@ -11,6 +11,7 @@ export interface ClaudePluginManifest {
   commands?: Record<string, string>;
   agents?: Record<string, string>;
   mcpServers?: Record<string, any>;
+  lspServers?: Record<string, any>;
 }
 
 export interface AdaptResult {
@@ -19,6 +20,7 @@ export interface AdaptResult {
   skillsCount: number;
   agentsCount: number;
   mcpServersCount: number;
+  lspServersCount: number;
 }
 
 export async function adaptClaudePlugin(pluginDir: string, ctx: any): Promise<AdaptResult> {
@@ -46,6 +48,7 @@ export async function adaptClaudePlugin(pluginDir: string, ctx: any): Promise<Ad
   let skillsCount = 0;
   let agentsCount = 0;
   let mcpServersCount = 0;
+  let lspServersCount = 0;
 
   // 2. Map commands/*.md -> OpenCode Slash Commands
   const commandsDir = path.join(pluginDir, "commands");
@@ -131,12 +134,39 @@ export async function adaptClaudePlugin(pluginDir: string, ctx: any): Promise<Ad
     }
   }
 
+  // 6. Map lsp.json or manifest.lspServers -> OpenCode LSP config
+  const lspCandidates = [
+    path.join(pluginDir, "lsp.json"),
+    path.join(pluginDir, ".claude-plugin", "lsp.json"),
+  ];
+
+  let lspConfig: Record<string, any> = manifest.lspServers || {};
+
+  for (const lspFile of lspCandidates) {
+    try {
+      const raw = await fs.readFile(lspFile, "utf-8");
+      const parsed = JSON.parse(raw);
+      lspConfig = { ...lspConfig, ...(parsed.lspServers || parsed) };
+    } catch {}
+  }
+
+  if (Object.keys(lspConfig).length > 0) {
+    lspServersCount = Object.keys(lspConfig).length;
+    if (ctx?.config) {
+      ctx.config.lsp = {
+        ...(typeof ctx.config.lsp === "object" ? ctx.config.lsp : {}),
+        ...lspConfig,
+      };
+    }
+  }
+
   return {
     pluginName: manifest.name,
     commandsCount,
     skillsCount,
     agentsCount,
     mcpServersCount,
+    lspServersCount,
   };
 }
 

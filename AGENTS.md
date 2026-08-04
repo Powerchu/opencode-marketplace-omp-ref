@@ -6,7 +6,7 @@ This document explains the **Claude Code Plugin to OpenCode Adapter (`claude-ada
 
 ## 🎯 Purpose & Overview
 
-Claude Code plugins are declarative folder packages containing skills (`SKILL.md`), slash commands (`commands/*.md`), custom agent roles (`agents/*.md`), and Model Context Protocol servers (`mcp.json`).
+Claude Code plugins are declarative folder packages containing skills (`SKILL.md`), slash commands (`commands/*.md`), custom agent roles (`agents/*.md`), Language Server Protocol declarations (`lspServers` / `lsp.json`), and Model Context Protocol servers (`mcp.json`).
 
 The **Claude Code Plugin Adapter** bridges these declarative artifacts dynamically into **OpenCode's runtime plugin context** at startup without requiring plugin authors to rewrite their code.
 
@@ -27,7 +27,8 @@ plugin-name/
 │       └── SKILL.md            ──► ~/.config/opencode/skills/database-audit/SKILL.md
 ├── agents/
 │   └── security-auditor.md     ──► OpenCode Subagent / Role Prompt Context
-└── mcp.json                    ──► Injected into OpenCode "mcp" server registry
+├── mcp.json                    ──► Injected into OpenCode "mcp" server registry
+└── lsp.json (or lspServers)   ──► Injected into OpenCode "lsp" language server registry
 ```
 
 ---
@@ -48,10 +49,15 @@ plugin-name/
 - **Source**: Role specification files in `agents/`.
 - **Translation**: Injected into OpenCode's instruction system for subagent delegation (`invoke_subagent`).
 
-### 4. MCP Servers (`mcp.json`)
+### 4. MCP Servers (`mcp.json` / `mcpServers`)
 - **Source**: `mcp.json` or `mcpServers` object in `plugin.json`.
 - **Translation**: Dynamically merged into OpenCode's active MCP context (`ctx.config.mcp`).
 - **Result**: External tools (databases, browsers, devtools) connect seamlessly as OpenCode tools.
+
+### 5. LSP Servers (`lsp.json` / `lspServers`)
+- **Source**: `lsp.json` or `lspServers` object in `plugin.json`.
+- **Translation**: Converted and merged into OpenCode's Language Server Protocol context (`ctx.config.lsp`).
+- **Result**: Code intelligence (autocompletion, go-to-definition, diagnostics for Go, TypeScript, Rust, Python, etc.) automatically initializes in OpenCode!
 
 ---
 
@@ -67,6 +73,7 @@ console.log(`Adapted ${result.pluginName}:`);
 console.log(`  Commands registered: ${result.commandsCount}`);
 console.log(`  Skills imported:     ${result.skillsCount}`);
 console.log(`  MCP Servers wired:   ${result.mcpServersCount}`);
+console.log(`  LSP Servers wired:   ${result.lspServersCount}`);
 ```
 
 ---

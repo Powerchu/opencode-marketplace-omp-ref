@@ -25,6 +25,7 @@ async function adaptClaudePlugin(pluginDir, ctx) {
   let skillsCount = 0;
   let agentsCount = 0;
   let mcpServersCount = 0;
+  let lspServersCount = 0;
   const commandsDir = path.join(pluginDir, "commands");
   if (await pathExists(commandsDir)) {
     try {
@@ -95,12 +96,34 @@ async function adaptClaudePlugin(pluginDir, ctx) {
       ctx.config.mcp = { ...ctx.config.mcp || {}, ...mcpConfig };
     }
   }
+  const lspCandidates = [
+    path.join(pluginDir, "lsp.json"),
+    path.join(pluginDir, ".claude-plugin", "lsp.json")
+  ];
+  let lspConfig = manifest.lspServers || {};
+  for (const lspFile of lspCandidates) {
+    try {
+      const raw = await fs.readFile(lspFile, "utf-8");
+      const parsed = JSON.parse(raw);
+      lspConfig = { ...lspConfig, ...parsed.lspServers || parsed };
+    } catch {}
+  }
+  if (Object.keys(lspConfig).length > 0) {
+    lspServersCount = Object.keys(lspConfig).length;
+    if (ctx?.config) {
+      ctx.config.lsp = {
+        ...typeof ctx.config.lsp === "object" ? ctx.config.lsp : {},
+        ...lspConfig
+      };
+    }
+  }
   return {
     pluginName: manifest.name,
     commandsCount,
     skillsCount,
     agentsCount,
-    mcpServersCount
+    mcpServersCount,
+    lspServersCount
   };
 }
 async function pathExists(p) {
