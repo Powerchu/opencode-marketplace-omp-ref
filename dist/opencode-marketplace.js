@@ -402,6 +402,43 @@ async function buildGitSpec(manager, marketplaceName, pluginName) {
   return null;
 }
 
+async function downloadPlugin(reference, cacheDir) {
+  var localDir;
+  // github:owner/repo#ref → clone from https://github.com/owner/repo.git
+  if (reference.startsWith("github:")) {
+    var rest = reference.slice(7);
+    var hashIdx = rest.indexOf("#");
+    var repo = hashIdx > 0 ? rest.slice(0, hashIdx) : rest;
+    var ref = hashIdx > 0 ? rest.slice(hashIdx + 1) : "main";
+    var url = "https://github.com/" + repo + ".git";
+    localDir = path5.join(cacheDir, repo.replace("/", "_"));
+  }
+  // git+https://... → extract URL and ref
+  else if (reference.startsWith("git+")) {
+    var gitUrl = reference.slice(4);
+    var parts = gitUrl.split("#");
+    url = parts[0];
+    ref = parts[1] ? parts[1].split(":")[0] : "main"; // strip :subdir if present
+    var name = path5.basename(url, ".git");
+    localDir = path5.join(cacheDir, name);
+  }
+  else {
+    return reference; // already local path, nothing to download
+  }
+
+  await fs.mkdir(cacheDir, { recursive: true });
+  try {
+    if (await dirExists(localDir)) {
+      execSync("git -C \"" + localDir + "\" fetch --quiet && git -C \"" + localDir + "\" checkout --quiet " + ref + " && git -C \"" + localDir + "\" pull --quiet", { stdio: "ignore" });
+    } else {
+      execSync("git clone --depth 1 --branch " + ref + " \"" + url + "\" \"" + localDir + "\" --quiet", { stdio: "ignore" });
+    }
+  } catch (err) {
+    throw new Error("Failed to download plugin from " + url + ": " + (err && err.message ? err.message : String(err)));
+  }
+  return localDir;
+}
+
 // =================================================================
 // OpenCode TUI Plugin Entry Point
 // =================================================================
@@ -471,7 +508,7 @@ export default {
       var installed = await manager.listInstalledPlugins();
       for (var i = 0; i < installed.length; i++) {
         var ep = installed[i].entries[0];
-        if (ep && ep.installPath) { await adaptPlugin(ep.installPath, api, null).catch(function(){}); }
+        if (ep && ep.installPath) { var lp = await downloadPlugin(ep.installPath, paths.pluginsCacheDir).catch(function(){ return ep.installPath; }); await adaptPlugin(lp, api, null).catch(function(){}); }
       }
     } catch {}
 
@@ -519,7 +556,8 @@ export default {
             var rp = "";
             for (var j = 0; j < inst.length; j++) { if (inst[j].id === sid) { rp = inst[j].entries[0] ? inst[j].entries[0].installPath : ""; break; } }
             var gs = await buildGitSpec(manager, parsed.marketplace, parsed.name);
-            var ar; if (rp) { ar = await adaptPlugin(rp, api, gs).catch(function(){}); }
+            var lp1 = await downloadPlugin(rp, paths.pluginsCacheDir).catch(function(){ return rp; });
+            var ar; if (rp) { ar = await adaptPlugin(lp1, api, gs).catch(function(){}); }
             await showResult(api, "Installed", "Successfully installed:\n\n**" + sid + "**" + (ar ? "\n\nSkills: " + ar.skillsCount + "  Commands: " + ar.commandsCount : ""));
             break;
           }
@@ -533,7 +571,8 @@ export default {
             var rp2 = "";
             for (var j = 0; j < inst2.length; j++) { if (inst2[j].id === spec) { rp2 = inst2[j].entries[0] ? inst2[j].entries[0].installPath : ""; break; } }
             var gs2 = await buildGitSpec(manager, parsed2.marketplace, parsed2.name);
-            var ar2; if (rp2) { ar2 = await adaptPlugin(rp2, api, gs2).catch(function(){}); }
+            var lp2 = await downloadPlugin(rp2, paths.pluginsCacheDir).catch(function(){ return rp2; });
+            var ar2; if (rp2) { ar2 = await adaptPlugin(lp2, api, gs2).catch(function(){}); }
             await showResult(api, "Installed", "Successfully installed:\n\n**" + spec + "**" + (ar2 ? "\n\nSkills: " + ar2.skillsCount + "  Commands: " + ar2.commandsCount : ""));
             break;
           }
@@ -588,7 +627,8 @@ export default {
       var rp = "";
       for (var j = 0; j < inst.length; j++) { if (inst[j].id === sid) { rp = inst[j].entries[0] ? inst[j].entries[0].installPath : ""; break; } }
       var gs = await buildGitSpec(manager, parsed.marketplace, parsed.name);
-      var ar; if (rp) { ar = await adaptPlugin(rp, api, gs).catch(function(){}); }
+      var lp1 = await downloadPlugin(rp, paths.pluginsCacheDir).catch(function(){ return rp; });
+      var ar; if (rp) { ar = await adaptPlugin(lp1, api, gs).catch(function(){}); }
       await showResult(api, "Installed", "Successfully installed:\n\n**" + sid + "**" + (ar ? "\n\nSkills: " + ar.skillsCount + "  Commands: " + ar.commandsCount : ""));
     }
     async function handleInstall() {
@@ -601,7 +641,8 @@ export default {
       var rp2 = "";
       for (var j = 0; j < inst2.length; j++) { if (inst2[j].id === spec) { rp2 = inst2[j].entries[0] ? inst2[j].entries[0].installPath : ""; break; } }
       var gs2 = await buildGitSpec(manager, parsed2.marketplace, parsed2.name);
-      var ar2; if (rp2) { ar2 = await adaptPlugin(rp2, api, gs2).catch(function(){}); }
+      var lp2 = await downloadPlugin(rp2, paths.pluginsCacheDir).catch(function(){ return rp2; });
+      var ar2; if (rp2) { ar2 = await adaptPlugin(lp2, api, gs2).catch(function(){}); }
       await showResult(api, "Installed", "Successfully installed:\n\n**" + spec + "**" + (ar2 ? "\n\nSkills: " + ar2.skillsCount + "  Commands: " + ar2.commandsCount : ""));
     }
     async function handleUninstall() {
