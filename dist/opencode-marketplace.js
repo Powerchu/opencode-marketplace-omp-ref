@@ -387,6 +387,8 @@ async function adaptPlugin(pluginDir, api, gitSpec) {
         await fs.writeFile(ocPath, newOc, "utf-8");
       }
     }
+    }
+  } catch {}
 
   return { pluginName: manifest.name, commandsCount, skillsCount };
 }
